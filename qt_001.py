@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
+### Version 1
+
 """
 There is Analizator / Visualization tool for log-files from AK98
 Dmytro Melnychenko had made this.
