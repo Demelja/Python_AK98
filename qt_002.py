@@ -29,8 +29,9 @@ import sqlite3
 
 ## HARD CORE DATA
 ### 
-__file_data = "ak98.log.txt"
-__log_archive = "Archive.zip"
+file_data_name = 'ak98.log.txt'
+file_database_name = 'AK98_full_log.db'
+log_archive_name = "Archive.zip"
 ### перечень (кортеж ?) кодов параметров
 range_variables = ["3537", "2074"]
 range_astrings = ["TMP", "UF_RATE", "PD_PRESSURE"]
@@ -46,13 +47,22 @@ range_astrings = ["TMP", "UF_RATE", "PD_PRESSURE"]
 
 class LogAnalizer:
     def __init__(self, parent=None):
-        self.__log_archive = ""
+        self.log_archive_name = ""
 
     # connect with DB
     def fn_sql_connection(self):
         try:
-            con = sqlite3.connect('sqlite_python.db')
-            return con
+            #print("Выполнено fn_sql_connection - перед")
+            #return sqlite3.connect('AK98_full_log.db') # con = sqlite3.connect(':memory:')
+            return sqlite3.connect(file_database_name) # con = sqlite3.connect(':memory:')
+        except sqlite3.Error as error:
+            print(error)
+
+    #
+    def fn_count_records(self, con):
+        try:
+            cursorObj = con.cursor()
+            return cursorObj.execute( "select COUNT(*) from 'ak98_events'" )
         except sqlite3.Error as error:
             print(error)
 
@@ -61,7 +71,7 @@ class LogAnalizer:
     def fn_sql_table(self, con):
         try:
             cursorObj = con.cursor()
-            cursorObj.execute('drop table if exists ak98_events')
+            cursorObj.execute( "drop table if exists 'ak98_events'" )
             
             query_create_table = "CREATE TABLE 'ak98_events' ("
             for event_variable in range_variables:
@@ -72,6 +82,7 @@ class LogAnalizer:
             cursorObj.execute(query_create_table)
             
             con.commit()
+
         except sqlite3.Error as error:
             print(error)
 
@@ -85,6 +96,7 @@ class LogAnalizer:
             cursorObj.execute(query_insert_data, [datatime_mark])
 
             con.commit()
+
         except sqlite3.Error as error:
             print(error)
 
@@ -103,22 +115,24 @@ class LogAnalizer:
             cursorObj.execute(query_insert_data)
 
             con.commit()
+
         except sqlite3.Error as error:
             print(error)
 
 
     # --------------------------------------------------------------
-    def fn_create_tmp_directory(self, tmp_dir, log_archive_file):
+    def fn_create_tmp_directory(self, tmp_dir, log_archive_file_name):
         """ 1. проверка - является ли кликнутое файлом и архивом, причем не более 1 МБ размером
                - если нет, сообщить "не архив" или "это архив архивов, распакуйте сначала"
                - если да, запустить далее """
+
         # copy to temporary directory
         try:
-            shutil.copyfile(log_archive_file, os.path.join(tmp_dir, "log_file_packed"))
+            shutil.copyfile(os.path.join(os.path.dirname(__file__), log_archive_file_name), os.path.join(tmp_dir, "log_file_packed"))
         except IOError:
-            print("Copy failed")
+            print("Copy failed... ")
         else:
-            print("Copied!", str(os.path.join(tmp_dir, "log_file_packed")))
+            print("Copied! ", str(os.path.join(tmp_dir, "log_file_packed")))
         # unpack
         with zipfile.ZipFile(os.path.join(tmp_dir, "log_file_packed"), 'r') as archive:
             archive.extractall(tmp_dir)
@@ -139,7 +153,8 @@ class LogAnalizer:
     def fn_read_log_txt_to_sql(self, tmp_dir, sql_connection):
         # получим объект файла
         # !!!!! os.path.join(tmp_dir, __file_data) - doesn't working at all !!!!!
-        file = open(os.path.join(tmp_dir, "ak98.log.txt"), mode="r", encoding="utf-8")
+        #file = open(os.path.join(tmp_dir, "ak98.log.txt"), mode="r", encoding="utf-8")
+        file = open(os.path.join(tmp_dir, file_data_name), mode="r", encoding="utf-8")
             
         # считываем все строки
         content = file.readlines()
@@ -162,7 +177,7 @@ class LogAnalizer:
             """
             date_time = (element[0].split("-"))[0].split(".")[0]
             if ( date_time_prior != date_time ):
-                print(element[0], date_time, (element[0].split("-"))[0].split(".")[1])
+                #print(element[0], date_time, (element[0].split("-"))[0].split(".")[1])
                 date_time_prior = date_time
                 self.fn_insert_new_row(sql_connection, date_time)
             #else:
@@ -179,6 +194,9 @@ class LogAnalizer:
 
             if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
                 self.fn_insert_data(sql_connection, [element[4], element[5], date_time])
+
+            count_records = self.fn_count_records(sql_connection)
+            print( count_records )
 
 
             # закрываем файл
@@ -247,14 +265,17 @@ with tempfile.TemporaryDirectory() as directory:
     #__log_archive = "" 
 
     # выполнить преобразование в базу
-    t_dir = a.fn_create_tmp_directory(directory, __log_archive)
+    t_dir = a.fn_create_tmp_directory(directory, log_archive_name)
 
     # 1. создать файл базы данных
     sql_conn = a.fn_sql_connection()
 
+    #print(sql_conn)
+
+    # 2.
     a.fn_sql_table(sql_conn)
 
-    #
+    # 3.
     a.fn_read_log_txt_to_sql(t_dir, sql_conn)
 
     # (range_class, range_type) = fn_sql_table(tmp_dir, con, moment_start, moment_stop)
