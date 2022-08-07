@@ -45,6 +45,7 @@ range_astrings = ["TMP", "UF_RATE", "PD_PRESSURE"]
 
 
 
+
 class LogAnalizer:
     def __init__(self, parent=None):
         self.log_archive_name = ""
@@ -73,12 +74,12 @@ class LogAnalizer:
             cursorObj = con.cursor()
             cursorObj.execute( "drop table if exists 'ak98_events'" )
             
-            query_create_table = "CREATE TABLE 'ak98_events' ("
+            query_create_table = "CREATE TABLE 'ak98_events' ('archive_name' text, "
             for event_variable in range_variables:
-                query_create_table += "'col" + str(event_variable) + "' text, "
+                query_create_table += "'" + str(event_variable) + "' text, "
             for event_astring in range_astrings:
-                query_create_table += "'col" + str(event_astring) + "' text, "
-            query_create_table += "moment_specific text PRIMARY KEY);"
+                query_create_table += "'" + str(event_astring) + "' text, "
+            query_create_table += "'moment_specific' text PRIMARY KEY);"
             cursorObj.execute(query_create_table)
             
             con.commit()
@@ -88,12 +89,12 @@ class LogAnalizer:
 
 
     # insert new row
-    def fn_insert_new_row(self, con, datatime_mark):
+    def fn_insert_new_row(self, con, datatime_mark, log_file_name):
         try:
             cursorObj = con.cursor()
             
-            query_insert_data = "INSERT INTO 'ak98_events' ('moment_specific') VALUES (?);"
-            cursorObj.execute(query_insert_data, [datatime_mark])
+            query_insert_data = "INSERT INTO 'ak98_events' ('archive_name', 'moment_specific') VALUES (?, ?);"
+            cursorObj.execute(query_insert_data, [log_file_name, datatime_mark])
 
             con.commit()
 
@@ -102,13 +103,13 @@ class LogAnalizer:
 
 
     # insert data
-    def fn_insert_data(self, con, data):
+    def fn_update_data(self, con, data):
         try:
             cursorObj = con.cursor()
             
-            query_insert_data = "UPDATE ak98_events SET col"
+            query_insert_data = "UPDATE ak98_events SET '"
             query_insert_data += data[0]
-            query_insert_data += " = "
+            query_insert_data += "' = "
             query_insert_data += data[1]
             query_insert_data += " WHERE moment_specific = '"
             query_insert_data += data[2] + "';"
@@ -121,7 +122,7 @@ class LogAnalizer:
 
 
     # --------------------------------------------------------------
-    def fn_create_tmp_directory(self, tmp_dir, log_archive_file_name):
+    def fn_unpack_log_archive(self, tmp_dir, log_archive_file_name):
         """ 1. проверка - является ли кликнутое файлом и архивом, причем не более 1 МБ размером
                - если нет, сообщить "не архив" или "это архив архивов, распакуйте сначала"
                - если да, запустить далее """
@@ -133,107 +134,101 @@ class LogAnalizer:
             print("Copy failed... ")
         else:
             print("Copied! ", str(os.path.join(tmp_dir, "log_file_packed")))
+        
         # unpack
         with zipfile.ZipFile(os.path.join(tmp_dir, "log_file_packed"), 'r') as archive:
             archive.extractall(tmp_dir)
 
-        # move down to log-data file location
-        tmp_dir = os.path.join(tmp_dir, "eMMC2")
-        tmp_dir = os.path.join(tmp_dir, "LogArchive")
-        tmp_dir = os.path.join(tmp_dir, os.path.splitext(os.path.basename(os.listdir(path=tmp_dir)[0]))[0])
-        tmp_dir = os.path.join(tmp_dir, "logdata")
-        tmp_dir = os.path.join(tmp_dir, "blackbox")
-        """
-                    5. проверить наличие файла ak98.log.txt. Если не найден - сообщить и выйти
-                    Если найден, запустить далее """
-        return tmp_dir
+        # move down to archives of log-data files location
+        tmp_dir_archive = os.path.join(tmp_dir, "eMMC2")
+        tmp_dir_archive = os.path.join(tmp_dir_archive, "LogArchive")
+
+        return tmp_dir_archive
 
 
     # --------------------------------------------------------------
-    def fn_read_log_txt_to_sql(self, tmp_dir, sql_connection):
-        # получим объект файла
-        # !!!!! os.path.join(tmp_dir, __file_data) - doesn't working at all !!!!!
-        #file = open(os.path.join(tmp_dir, "ak98.log.txt"), mode="r", encoding="utf-8")
-        file = open(os.path.join(tmp_dir, file_data_name), mode="r", encoding="utf-8")
-            
-        # считываем все строки
-        content = file.readlines()
+    def fn_read_log_txt_to_sql(self, tmp_dir_archive, sql_connection):
 
-        # поиск вхождений искомого текста в строке
-        date_time_prior = ""
+        # перебор всех файлов
+        for subdir, dirs, files in os.walk(tmp_dir_archive):
+            for file in files:
+            # unpack
+                with zipfile.ZipFile(os.path.join(tmp_dir_archive, file), 'r') as archive:
+                    archive.extractall(tmp_dir_archive)
+                    # move down to log-data file location
+                    #tmp_dir_logfile = os.path.join(tmp_dir_archive, os.path.splitext(os.path.basename(os.listdir(path=tmp_dir_archive)[0]))[0])
+                    tmp_dir_logfile = os.path.join(tmp_dir_archive, "eMMC2")
+                    tmp_dir_logfile = os.path.join(tmp_dir_logfile, "LogArchive")
+                    tmp_dir_logfile = os.path.join(tmp_dir_logfile, file.split('.')[0])
+                    tmp_dir_logfile = os.path.join(tmp_dir_logfile, "logdata")
+                    tmp_dir_logfile = os.path.join(tmp_dir_logfile, "blackbox")
 
-        # 3. для каждой строки:
-        for line in content:
-            # разбить строку на элементы
-            # 3.1. разделить по пробелу
-            element = (line.strip()).split(" ")
+                    """
+                    5. проверить наличие файла ak98.log.txt. Если не найден - сообщить и выйти
+                    Если найден, запустить далее """
 
-            """
-                            3.1.1. для элемента [0]: разделить по "-"
-                                    для элемента [0]: разделить по "."
-                                                    сравнить с "предыдущим" значением. Если НЕ СОВПАДАЕТ - создать новую строку в БД
-                                    для элемента [0]: преобразовать в дату и время, записать в БД
-                                    для элемента [1]: записать в БД
-            """
-            date_time = (element[0].split("-"))[0].split(".")[0]
-            if ( date_time_prior != date_time ):
-                #print(element[0], date_time, (element[0].split("-"))[0].split(".")[1])
-                date_time_prior = date_time
-                self.fn_insert_new_row(sql_connection, date_time)
-            #else:
-                #print("+++       ", date_time)
-                
-            """
-                            3.1.2. если элемент [1] равен строке "CONTROL_TRACO", записать в БД элемент [5] в соответствующий столбец, а элемент [7] - в столбец "VALUE"
-                            3.1.3. если элемент [1] равен строке "UI_CANLOG" AND элемент [3] не равен "MACHINEMODE_UI" AND элемент [4] не равен "DIAGNOSTIC_RAISED", 
-                                записать в БД элемент [4] в соответствующий столбец, а элемент [5] - в столбец "VALUE"
-            """
+                    # получим объект файла
+                    # FILE_DATA_NAME -- хардкор, 'ak98.log.txt'
+                    log_file = open(os.path.join(tmp_dir_logfile, file_data_name), mode="r", encoding="utf-8")
 
-            if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
-                self.fn_insert_data(sql_connection, [element[5], element[7], date_time])
+                    # считываем все строки
+                    content = log_file.readlines()
 
-            if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
-                self.fn_insert_data(sql_connection, [element[4], element[5], date_time])
+                    # переменная времени ПРЕДЫДУЩЕГО события - для решения вставлять новую строку или обновить существующую
+                    date_time_prior = ""
+                    flag_record_events = False
 
-            count_records = self.fn_count_records(sql_connection)
-            print( count_records )
+                    # 3. для каждой строки:
+                    for line in content:
+                        # разбить строку на элементы
+                        # 3.1. разделить по пробелу
+                        element = (line.strip()).split(" ")
 
+                        if ( len( element ) > 2 ):
 
-            # закрываем файл
-        file.close
-            #file_result.close()
+                            if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] == '2' ):
+                                flag_record_events = True
+                            
+                            if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] == '3' ):
+                                flag_record_events = False
+                            
+                            #print(len(content), " >>> ", len(element), " >>> ", flag_record_events)
 
+                            if ( flag_record_events ):
+                                """
+                                                3.1.1. для элемента [0]: разделить по "-"
+                                                        для элемента [0]: разделить по "."
+                                                                        сравнить с "предыдущим" значением. Если НЕ СОВПАДАЕТ - создать новую строку в БД
+                                                        для элемента [0]: преобразовать в дату и время, записать в БД
+                                                        для элемента [1]: записать в БД
+                                """
+                                date_time = (element[0].split("-"))[0].split(".")[0]
+                                
+                                # если событие происходит в тот же момент, то нет нужды создавать новую строку в базе данных
+                                if ( date_time_prior != date_time ):
+                                    date_time_prior = date_time
+                                    self.fn_insert_new_row(sql_connection, date_time, file.split('.')[0])
+                                    
+                                """
+                                                3.1.2. если элемент [1] равен строке "CONTROL_TRACO", записать в БД элемент [5] в соответствующий столбец, а элемент [7] - в столбец "VALUE"
+                                                3.1.3. если элемент [1] равен строке "UI_CANLOG" AND элемент [3] не равен "MACHINEMODE_UI" AND элемент [4] не равен "DIAGNOSTIC_RAISED", 
+                                                    записать в БД элемент [4] в соответствующий столбец, а элемент [5] - в столбец "VALUE"
+                                """
 
+                                if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
+                                    self.fn_update_data(sql_connection, [element[5], element[7], date_time])
 
+                                if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
+                                    self.fn_update_data(sql_connection, [element[4], element[5], date_time])
 
+                                count_records = self.fn_count_records(sql_connection)
+                                print( count_records )
+                        
+                        # END: if ( len( element ) > 0 )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                    # закрываем файл
+                    log_file.close
+                    #file_result.close()
 
 
 
@@ -247,31 +242,64 @@ class LogAnalizer:
 
 
 
-''' ==================================================================== '''
-''' ==================================================================== '''
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ====================================================================
+# ====================================================================
+# for future: start from command line with parameters
 if len (sys.argv) > 1:
-    print ("Привет, {}!".format (sys.argv[1] ) )
+    print ("Attached, {}!".format (sys.argv[1] ) )
 else:
-    print ("Привет, мир!")
+    print ("Nothing attached, execute file only")
 
-# создаём временную директорию
+
+
+
+
+# create temporary directory -> analize -> remove temp.directory
 with tempfile.TemporaryDirectory() as directory:
-    print('Создана >>>>>>>>>>>>> временная директория %s' % directory)
 
     a = LogAnalizer()
 
     # прочитать из командной строки второй параметр
     #__log_archive = "" 
 
-    # выполнить преобразование в базу
-    t_dir = a.fn_create_tmp_directory(directory, log_archive_name)
+    # выпаковать целевой файл архива событий
+    t_dir = a.fn_unpack_log_archive(directory, log_archive_name)
 
-    # 1. создать файл базы данных
+    # 1. create database file
     sql_conn = a.fn_sql_connection()
-
-    #print(sql_conn)
-
+    
     # 2.
     a.fn_sql_table(sql_conn)
 
@@ -283,5 +311,5 @@ with tempfile.TemporaryDirectory() as directory:
     # fn_sql_transfer_data(con, tmp_dir, range_class, range_type)
     
 
-print("Финальное сообщение")
+print("That\'s all, folks!!!")
 sys.exit()
