@@ -9,7 +9,7 @@ Dmytro Melnychenko had made this.
 06-JAN-2022 is the first day
 """
 
-##-- log analizer
+##-- AK98_log_analizer.txt_to_sqlite_converter.MACHINEMODE_2_up_to_3
 ##-- Dmytro Melnychenko AKA D-Man
 ##-- program name - ?
 
@@ -25,16 +25,44 @@ import zipfile
 
 import sqlite3
 
+from datetime import datetime
+
 
 
 ## HARD CORE DATA
 ### 
 file_data_name = 'ak98.log.txt'
 file_database_name = 'AK98_full_log.db'
-log_archive_name = "Archive.zip"
+log_archive_name = "Archive.zip" #zip-file should be renamed
 ### перечень (кортеж ?) кодов параметров
-range_variables = ["3537", "2074"]
-range_astrings = ["TMP", "UF_RATE", "PD_PRESSURE"]
+range_variables = [ "650", "534", "1651", "1682", 
+            "2484", "2385", "3189", "2578", "2690", "2952", "2749", "2322",
+            "2122", "2141", "3537", "3869",
+            "2157", "2162", "2120", "2193", "2200",
+            "2119", "2073", "2116", 
+            "2086", "1632", 
+            "1706",
+            "2184", 
+            "1765", 
+            "2074" ]
+range_astrings = [ "TMP", 
+            "UF_RATE", "UF_CHANNEL_1_FLOW", "UF_CHANNEL_2_FLOW", "UF_CHANNEL_1_FLOW_FILTERED", "UF_CHANNEL_2_FLOW_FILTERED", 
+            "UF_SUPERVISION_CHANNEL_1_FLOW", "UF_SUPERVISION_CHANNEL_2_FLOW", "UF_SUPERVISION_UF_RATE",
+            "UFS_UFRATE_MEASURED", "UFS_TAR_START", "UFS_BL_PUMP_ACTIVE", "UFS_FILTR_UFR", "UFS_CP_DIFF_UFR",
+            "UFS_ACCUMULATED_MEASURED_UFRATE", "UFS_ACCUMULATED_IDEAL_UFRATE", 
+            "PD_PRESSURE", "VENOUS_PRESSURE", "VENOUS_PRESSURE_P", "ARTERIAL_PRESSURE",
+            "DIALYSIS_FLUID_PATH_FLOW_STATUS", "FLOW_SWITCH", "BLOOD_LEAK_DETECTOR_BLU", "BUBBLE_TRAP_POSITION",
+            "A_TEMPERATURE", "B_TEMPERATURE", "C_TEMPERATURE", "P_TEMPERATURE", "B_TEMPERATURE_COMP",
+            "HEATER_OUTLET_TEMPERATURE", "UI_IO_P_TEMPERATURE", "POWER_IO_P_TEMPERATURE",
+            "A_CONDUCTIVITY", "B_CONDUCTIVITY", "P_CONDUCTIVITY",
+            "A_CONCENTRATE_PUMP_SPEED_DEVIATION", "B_CONCENTRATE_PUMP_SPEED_DEVIATION",
+            "SAFETY_GUARD_PRESSURE_SWITCH", 
+            "PROTECTIVE_VALVE_SET_OPEN_CLOSE", "CONTROL_VALVE_SET_OPEN_CLOSE",
+            "PROTECTIVE_VALVE_OPENED_CLOSED", "CONTROL_VALVE_OPENED_CLOSED", 
+            "BATTERY_COND_TEST_VOLTAGE_RESULT" ]
+#range_variables = [ "650", "534", "1651", "1682", "2484", "2385", "3189", "2578", "2690", "2952", "2749", "2322","2122", "2141", "3537", "3869", "2157", "2162", "2120", "2193", "2200", "2119", "2073", "2116", "2086", "1632", "1706", "2184", "1765", "3537", "2074" ]
+#range_astrings = [ "TMP", "UF_RATE", "UF_CHANNEL_1_FLOW", "UF_CHANNEL_2_FLOW", "UF_CHANNEL_1_FLOW_FILTERED", "UF_CHANNEL_2_FLOW_FILTERED", "UF_SUPERVISION_CHANNEL_1_FLOW", "UF_SUPERVISION_CHANNEL_2_FLOW", "UF_SUPERVISION_UF_RATE", "UFS_UFRATE_MEASURED", "UFS_TAR_START", "UFS_BL_PUMP_ACTIVE", "UFS_FILTR_UFR", "UFS_CP_DIFF_UFR", "PD_PRESSURE", "VENOUS_PRESSURE", "VENOUS_PRESSURE_P", "ARTERIAL_PRESSURE", "DIALYSIS_FLUID_PATH_FLOW_STATUS", "FLOW_SWITCH", "BLOOD_LEAK_DETECTOR_BLU", "BUBBLE_TRAP_POSITION", "A_TEMPERATURE", "B_TEMPERATURE", "C_TEMPERATURE", "P_TEMPERATURE", "B_TEMPERATURE_COMP", "HEATER_OUTLET_TEMPERATURE", "UI_IO_P_TEMPERATURE", "POWER_IO_P_TEMPERATURE", "A_CONDUCTIVITY", "B_CONDUCTIVITY", "P_CONDUCTIVITY", "A_CONCENTRATE_PUMP_SPEED_DEVIATION", "B_CONCENTRATE_PUMP_SPEED_DEVIATION", "SAFETY_GUARD_PRESSURE_SWITCH", "PROTECTIVE_VALVE_SET_OPEN_CLOSE", "CONTROL_VALVE_SET_OPEN_CLOSE", "PROTECTIVE_VALVE_OPENED_CLOSED", "CONTROL_VALVE_OPENED_CLOSED", "BATTERY_COND_TEST_VOLTAGE_RESULT" ]
+
 
 
 
@@ -63,7 +91,8 @@ class LogAnalizer:
     def fn_count_records(self, con):
         try:
             cursorObj = con.cursor()
-            return cursorObj.execute( "select COUNT(*) from 'ak98_events'" )
+            return cursorObj.execute( "select COUNT(*) from 'ak98_events'" ).fetchone()[0]
+
         except sqlite3.Error as error:
             print(error)
 
@@ -99,7 +128,7 @@ class LogAnalizer:
             con.commit()
 
         except sqlite3.Error as error:
-            print(error)
+            print(error, " >>> ", datatime_mark)
 
 
     # insert data
@@ -178,6 +207,8 @@ class LogAnalizer:
                     date_time_prior = ""
                     flag_record_events = False
 
+                    i = 0
+
                     # 3. для каждой строки:
                     for line in content:
                         # разбить строку на элементы
@@ -202,7 +233,8 @@ class LogAnalizer:
                                                         для элемента [0]: преобразовать в дату и время, записать в БД
                                                         для элемента [1]: записать в БД
                                 """
-                                date_time = (element[0].split("-"))[0].split(".")[0]
+                                #date_time = (element[0].split("-"))[0].split(".")[0]
+                                date_time = (element[0].split("-"))[0]
                                 
                                 # если событие происходит в тот же момент, то нет нужды создавать новую строку в базе данных
                                 if ( date_time_prior != date_time ):
@@ -221,10 +253,14 @@ class LogAnalizer:
                                 if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
                                     self.fn_update_data(sql_connection, [element[4], element[5], date_time])
 
-                                count_records = self.fn_count_records(sql_connection)
-                                print( count_records )
+                                #count_records = self.fn_count_records(sql_connection)
+                                #print( count_records )
+                                #print(datetime.now())
                         
                         # END: if ( len( element ) > 0 )
+
+                        print(i)
+                        i = i + 1
 
                     # закрываем файл
                     log_file.close
@@ -309,6 +345,8 @@ with tempfile.TemporaryDirectory() as directory:
     # (range_class, range_type) = fn_sql_table(tmp_dir, con, moment_start, moment_stop)
     #
     # fn_sql_transfer_data(con, tmp_dir, range_class, range_type)
+
+    print("Total records -- ", a.fn_count_records(sql_conn))
     
 
 print("That\'s all, folks!!!")
