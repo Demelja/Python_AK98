@@ -103,12 +103,12 @@ class LogAnalizer:
             cursorObj = con.cursor()
             cursorObj.execute( "drop table if exists 'ak98_events'" )
             
-            query_create_table = "CREATE TABLE 'ak98_events' ('archive_name' text, "
+            query_create_table = "CREATE TABLE 'ak98_events' ('moment_specific' TEXT PRIMARY KEY, 'technical_error' TEXT, 'machine_mode' TEXT, "
             for event_variable in range_variables:
-                query_create_table += "'" + str(event_variable) + "' text, "
+                query_create_table += "'c" + str(event_variable) + "' TEXT, "
             for event_astring in range_astrings:
-                query_create_table += "'" + str(event_astring) + "' text, "
-            query_create_table += "'moment_specific' timestamp PRIMARY KEY);"
+                query_create_table += "'" + str(event_astring) + "' TEXT, "
+            query_create_table += "'archive_name' TEXT);"
             cursorObj.execute(query_create_table)
             
             con.commit()
@@ -128,7 +128,7 @@ class LogAnalizer:
             con.commit()
 
         except sqlite3.Error as error:
-            print(error, " >>> ", datatime_mark)
+            print(error, " >>> ", datatime_mark, " >>> INSERT")
 
 
     # insert data
@@ -140,6 +140,8 @@ class LogAnalizer:
             query_insert_data += data[0]
             query_insert_data += "' = "
             query_insert_data += data[1]
+            query_insert_data += ", 'machine_mode' = "
+            query_insert_data += data[3]
             query_insert_data += " WHERE moment_specific = '"
             query_insert_data += data[2] + "';"
             cursorObj.execute(query_insert_data)
@@ -147,7 +149,51 @@ class LogAnalizer:
             con.commit()
 
         except sqlite3.Error as error:
-            print(error)
+            print(error, " >>> ", data[2], " >>> UPDATE")
+
+
+    # --------------------------------------------------------------
+    def tech_error_number_decode(self, current_line_of_log):
+        """"""
+        part_of_line = (current_line_of_log.strip()).split(" ")
+        
+        if ( len( part_of_line[5] ) == 1 ):
+            sub_node_num = "0" + part_of_line[5]
+        else:
+            sub_node_num = part_of_line[5]
+        
+        if ( len( part_of_line[7].split("=")[1] ) == 1 ):
+            node_num = "0" + part_of_line[7].split("=")[1]
+        else:
+            node_num = part_of_line[7].split("=")[1]
+        
+        if ( len( part_of_line[8].split("=")[1] ) == 1 ):
+            sub_cat_num = "00" + part_of_line[8].split("=")[1]
+        else:
+            if ( len( part_of_line[7].split("=")[1] ) == 2 ):
+                sub_cat_num = "0" + part_of_line[8].split("=")[1]
+            else:
+                sub_cat_num = part_of_line[8].split("=")[1]
+        
+        if ( len( part_of_line[9].split("=")[1] ) == 1 ):
+            err_num = "00" + part_of_line[9].split("=")[1]
+        else:
+            if ( len( part_of_line[9].split("=")[1] ) == 2 ):
+                err_num = "0" + part_of_line[9].split("=")[1]
+            else:
+                err_num = part_of_line[9].split("=")[1]
+        
+        if ( len( part_of_line[10].split("=")[1] ) == 1 ):
+            cat_num = "00" + part_of_line[10].split("=")[1]
+        else:
+            if ( len( part_of_line[10].split("=")[1] ) == 2 ):
+                cat_num = "0" + part_of_line[10].split("=")[1]
+            else:
+                cat_num = part_of_line[10].split("=")[1]
+        
+        tech_error_number = sub_node_num + "" + node_num + " " + sub_cat_num + " " + err_num + " " + cat_num + " :: " + part_of_line[6].split("=")[1]
+        
+        return tech_error_number
 
 
     # --------------------------------------------------------------
@@ -207,6 +253,9 @@ class LogAnalizer:
                     date_time_prior = ""
                     flag_record_events = False
 
+                    #
+                    machine_mode = "-"
+
                     i = 0
 
                     # 3. для каждой строки:
@@ -248,11 +297,25 @@ class LogAnalizer:
                                                     записать в БД элемент [4] в соответствующий столбец, а элемент [5] - в столбец "VALUE"
                                 """
 
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'MACHINE_MODE' ):
+                                    machine_mode = "" + element[5]
+
                                 if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
-                                    self.fn_update_data(sql_connection, [element[5], element[7], date_time_formatted])
+                                    self.fn_update_data(sql_connection, ["c"+element[5], element[7], date_time_formatted, machine_mode])
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
-                                    self.fn_update_data(sql_connection, [element[4], element[5], date_time_formatted])
+                                    self.fn_update_data(sql_connection, [element[4], element[5], date_time_formatted, machine_mode])
+
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
+                                    tech_error_number = "'" + self.tech_error_number_decode(line) + "'"
+                                    print("----------------------------------------------------------- ", tech_error_number)
+                                    self.fn_update_data(sql_connection, ['technical_error', tech_error_number, date_time_formatted, machine_mode])
+
+                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
+                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
+                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
+                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
+                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
 
                                 #count_records = self.fn_count_records(sql_connection)
                                 #print( count_records )
@@ -260,7 +323,7 @@ class LogAnalizer:
                         
                         # END: if ( len( element ) > 0 )
 
-                        print(i)
+                        #print(i)
                         i = i + 1
 
                     # закрываем файл
