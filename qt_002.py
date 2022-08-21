@@ -29,6 +29,8 @@ from datetime import datetime
 
 
 
+
+
 ## HARD CORE DATA
 ### 
 file_data_name = 'ak98.log.txt'
@@ -103,7 +105,7 @@ class LogAnalizer:
             cursorObj = con.cursor()
             cursorObj.execute( "drop table if exists 'ak98_events'" )
             
-            query_create_table = "CREATE TABLE 'ak98_events' ('moment_specific' TEXT PRIMARY KEY, 'technical_error' TEXT, 'machine_mode' TEXT, "
+            query_create_table = "CREATE TABLE 'ak98_events' ('moment_specific' TEXT PRIMARY KEY, 'technical_error' TEXT, 'machine_mode' TEXT, 'attention_message' TEXT, "
             for event_variable in range_variables:
                 query_create_table += "'c" + str(event_variable) + "' TEXT, "
             for event_astring in range_astrings:
@@ -226,7 +228,9 @@ class LogAnalizer:
 
         # перебор всех файлов
         for subdir, dirs, files in os.walk(tmp_dir_archive):
+            files.sort()
             for file in files:
+                print(file.split(".")[0])
             # unpack
                 with zipfile.ZipFile(os.path.join(tmp_dir_archive, file), 'r') as archive:
                     archive.extractall(tmp_dir_archive)
@@ -255,8 +259,6 @@ class LogAnalizer:
 
                     #
                     machine_mode = "-"
-
-                    i = 0
 
                     # 3. для каждой строки:
                     for line in content:
@@ -308,23 +310,26 @@ class LogAnalizer:
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
                                     tech_error_number = "'" + self.tech_error_number_decode(line) + "'"
-                                    print("----------------------------------------------------------- ", tech_error_number)
+                                    #print("----------------------------------------------------------- ", tech_error_number)
                                     self.fn_update_data(sql_connection, ['technical_error', tech_error_number, date_time_formatted, machine_mode])
 
-                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
-                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
-                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
-                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
-                                #if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
+                                    attention = "'" + element[5] + " :: " + element[6].split("=")[1] + "'"
+                                    self.fn_update_data(sql_connection, ['attention_message', attention, date_time_formatted, machine_mode])
 
-                                #count_records = self.fn_count_records(sql_connection)
-                                #print( count_records )
-                                #print(datetime.now())
-                        
-                        # END: if ( len( element ) > 0 )
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
+                                    attention_p = "'" + element[5] + " :_P_: " + element[6].split("=")[1] + "'"
+                                    self.fn_update_data(sql_connection, ['attention_message', attention_p, date_time_formatted, machine_mode])
 
-                        #print(i)
-                        i = i + 1
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
+                                    alarm = "'" + element[5] + " :: " + element[6].split("=")[1] + "'"
+                                    self.fn_update_data(sql_connection, ['attention_message', alarm, date_time_formatted, machine_mode])
+
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
+                                    alarm_p = "'" + element[5] + " :_P_: " + element[6].split("=")[1] + "'"
+                                    self.fn_update_data(sql_connection, ['attention_message', alarm_p, date_time_formatted, machine_mode])
+
+                        # END: if ( len( element ) > 2 )
 
                     # закрываем файл
                     log_file.close
