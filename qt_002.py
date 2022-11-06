@@ -67,6 +67,18 @@ range_astrings = [ "TMP",
 range_variables = [ "2122", "2141" ]
 range_astrings = [ "PD_PRESSURE" ]
 
+data_variables_astrings = {}
+
+for event_variable in range_variables:
+    data_variables_astrings["c"+event_variable] = 0
+for event_astring in range_astrings:
+    data_variables_astrings[event_astring] = 0
+
+#
+flag_empty_row = True
+
+
+
 #range_variables = [ "650", "534", "1651", "1682", "2484", "2385", "3189", "2578", "2690", "2952", "2749", "2322", "2122", "2123", "2141", "2142", "1891", "1894", "3537", "3869", "2157", "2162", "2120", "2193", "2200", "2119", "2073", "2116", "2086", "1632", "1706", "2184", "1765", "3537", "2074" ]
 #range_astrings = [ "TMP", "UF_RATE", "UF_CHANNEL_1_FLOW", "UF_CHANNEL_2_FLOW", "UF_CHANNEL_1_FLOW_FILTERED", "UF_CHANNEL_2_FLOW_FILTERED", "UF_SUPERVISION_CHANNEL_1_FLOW", "UF_SUPERVISION_CHANNEL_2_FLOW", "UF_SUPERVISION_UF_RATE", "UFS_UFRATE_MEASURED", "UFS_TAR_START", "UFS_BL_PUMP_ACTIVE", "UFS_FILTR_UFR", "UFS_CP_DIFF_UFR", "PD_PRESSURE", "VENOUS_PRESSURE", "VENOUS_PRESSURE_P", "ARTERIAL_PRESSURE", "DIALYSIS_FLUID_PATH_FLOW_STATUS", "FLOW_SWITCH", "BLOOD_LEAK_DETECTOR_BLU", "BUBBLE_TRAP_POSITION", "A_TEMPERATURE", "B_TEMPERATURE", "C_TEMPERATURE", "P_TEMPERATURE", "B_TEMPERATURE_COMP", "HEATER_OUTLET_TEMPERATURE", "UI_IO_P_TEMPERATURE", "POWER_IO_P_TEMPERATURE", "A_CONDUCTIVITY", "B_CONDUCTIVITY", "P_CONDUCTIVITY", "A_CONCENTRATE_PUMP_SPEED_DEVIATION", "B_CONCENTRATE_PUMP_SPEED_DEVIATION", "SAFETY_GUARD_PRESSURE_SWITCH", "PROTECTIVE_VALVE_SET_OPEN_CLOSE", "CONTROL_VALVE_SET_OPEN_CLOSE", "PROTECTIVE_VALVE_OPENED_CLOSED", "CONTROL_VALVE_OPENED_CLOSED", "BATTERY_COND_TEST_VOLTAGE_RESULT" ]
 
@@ -144,26 +156,48 @@ class LogAnalizer:
         except sqlite3.Error as error:
             print(error, " >>> ", datetime_mark, " >>> INSERT")
 
-
-    # insert data
-    def fn_update_data(self, con, data):
+    # delete row inserted but empty
+    def fn_delete_empty_row(self, con, datetime_mark, log_file_name):
         try:
             cursorObj = con.cursor()
-            
-            query_insert_data = "UPDATE ak98_events SET '"
-            query_insert_data += data[0]
-            query_insert_data += "' = "
-            query_insert_data += data[1]
-            query_insert_data += ", 'machine_mode' = '"
-            query_insert_data += data[3]
-            query_insert_data += "' WHERE moment_specific = '"
-            query_insert_data += data[2] + "';"
-            cursorObj.execute(query_insert_data)
+
+            query_delete_row = "DELETE FROM 'ak98_events' "
+            query_delete_row += "WHERE moment_specific = '" + str(datetime_mark) + "' "
+            query_delete_row += "AND "
+            query_delete_row += "archive_name = '" + str(log_file_name) + "';"
+            cursorObj.execute(query_delete_row)
 
             con.commit()
 
         except sqlite3.Error as error:
-            print(error, " >>> ", data[2], " --- mach.mode = ", data[3], " >>> UPDATE")
+            print(error, " >>> ", datetime_mark, " >>> DELETE empty")
+
+    # insert data
+    def fn_update_data(self, con, data, data2):
+        try:
+            cursorObj = con.cursor()
+
+            query_update_data = "UPDATE ak98_events SET "
+            for event_variable in range_variables:
+                query_update_data += "'c" + str(event_variable) + "' = "
+                query_update_data += "'" + str(data2["c" + str(event_variable)]) + "'"
+                query_update_data += ", "
+            for event_astring in range_astrings:
+                query_update_data += "'" + str(event_astring) + "' = "
+                query_update_data += "'" + data2[event_astring] + "'"
+                query_update_data += ", "
+            query_update_data += "'machine_mode' = '"
+            query_update_data += data[3]
+            query_update_data += "' WHERE moment_specific = '"
+            query_update_data += data[2] + "';"
+
+            cursorObj.execute(query_update_data)
+
+            con.commit()
+
+        except sqlite3.Error as error:
+            #print(error, " >>> ", data[2], " --- mach.mode = ", data[3], " >>> UPDATE")
+            print(error, "UPDATE >>> ", query_update_data)
 
 
     # --------------------------------------------------------------
@@ -271,6 +305,9 @@ class LogAnalizer:
                     moment_start = "2000-01-01 00:00:00"
 
                     #
+                    flag_empty_row = True
+
+                    #
                     machine_mode = "-"
 
                     # 3. для каждой строки:
@@ -293,11 +330,9 @@ class LogAnalizer:
                                 date_time = (element[0].split("-"))[0].split(".")[0]
                                 moment_start = date_time.split("_")[0][0:4] + "-" + date_time.split("_")[0][4:6] + "-" + date_time.split("_")[0][6:8] + " " + date_time.split("_")[1]
                             
-                            if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] == '3' ):
+                            if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] != '2' ):
                                 flag_record_events = False
                             
-                            #print(len(content), " >>> ", len(element), " >>> ", flag_record_events)
-
                             if ( flag_record_events ):
                                 """
                                                 3.1.1. для элемента [0]: разделить по "-"
@@ -315,6 +350,8 @@ class LogAnalizer:
                                 
                                 # если событие происходит в тот же момент, то нет нужды создавать новую строку в базе данных
                                 if ( date_time_prior != date_time ):
+                                    #print("flag_empty ::: ", flag_empty_row, " === ", date_time)
+                                    flag_empty_row = True
                                     date_time_prior = date_time
                                     self.fn_insert_new_row(sql_connection, date_time_formatted, moment_start, file.split('.')[0], machine_mode)
                                     
@@ -325,31 +362,50 @@ class LogAnalizer:
                                 """
 
                                 if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
-                                    self.fn_update_data(sql_connection, ["c"+element[5], element[7], date_time_formatted, machine_mode])
+                                    for event_variable in range_variables:
+                                        if ( element[5] == event_variable ):
+                                            data_variables_astrings["c"+element[5]] = element[7]
+                                    #print("variables ::: ", data_variables_astrings)
+                                    flag_empty_row = False
+                                    self.fn_update_data(sql_connection, ["c"+element[5], element[7], date_time_formatted, machine_mode], data_variables_astrings)
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
-                                    self.fn_update_data(sql_connection, [element[4], element[5], date_time_formatted, machine_mode])
+                                    for event_astring in range_astrings:
+                                        if ( element[4] == event_astring ):
+                                            data_variables_astrings[str(element[4])] = element[5]
+                                    #print("astrings ::: ", data_variables_astrings)
+                                    flag_empty_row = False
+                                    self.fn_update_data(sql_connection, [element[4], element[5], date_time_formatted, machine_mode], data_variables_astrings)
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
                                     tech_error_number = "'" + self.tech_error_number_decode(line) + "'"
                                     #print("----------------------------------------------------------- ", tech_error_number)
-                                    self.fn_update_data(sql_connection, ['technical_error', tech_error_number, date_time_formatted, machine_mode])
+                                    flag_empty_row = False
+                                    self.fn_update_data(sql_connection, ['technical_error', tech_error_number, date_time_formatted, machine_mode], data_variables_astrings)
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
                                     attention = "'" + element[5] + " :: " + element[6].split("=")[1] + "'"
-                                    self.fn_update_data(sql_connection, ['attention_message', attention, date_time_formatted, machine_mode])
+                                    flag_empty_row = False
+                                    self.fn_update_data(sql_connection, ['attention_message', attention, date_time_formatted, machine_mode], data_variables_astrings)
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
                                     attention_p = "'" + element[5] + " :_P_: " + element[6].split("=")[1] + "'"
-                                    self.fn_update_data(sql_connection, ['attention_message', attention_p, date_time_formatted, machine_mode])
+                                    flag_empty_row = False
+                                    self.fn_update_data(sql_connection, ['attention_message', attention_p, date_time_formatted, machine_mode], data_variables_astrings)
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
                                     alarm = "'" + element[5] + " :: " + element[6].split("=")[1] + "'"
-                                    self.fn_update_data(sql_connection, ['attention_message', alarm, date_time_formatted, machine_mode])
+                                    flag_empty_row = False
+                                    self.fn_update_data(sql_connection, ['attention_message', alarm, date_time_formatted, machine_mode], data_variables_astrings)
 
                                 if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
                                     alarm_p = "'" + element[5] + " :_P_: " + element[6].split("=")[1] + "'"
-                                    self.fn_update_data(sql_connection, ['attention_message', alarm_p, date_time_formatted, machine_mode])
+                                    flag_empty_row = False
+                                    self.fn_update_data(sql_connection, ['attention_message', alarm_p, date_time_formatted, machine_mode], data_variables_astrings)
+
+                                if ( flag_empty_row ):
+                                    #print("flag_empty ::: at the end ::: ", flag_empty_row, " === ", date_time)
+                                    self.fn_delete_empty_row(sql_connection, date_time_formatted, file.split('.')[0])
 
                         else:
                             # case: Machine_mode was not finished but the machine was shut down
