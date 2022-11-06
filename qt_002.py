@@ -34,9 +34,10 @@ from datetime import datetime
 ## HARD CORE DATA
 ### 
 file_data_name = 'ak98.log.txt'
-file_database_name = 'AK98_full_log.db'
+file_database_name = 'AK98_log_pressure.db'
 log_archive_name = "Archive.zip" #zip-file should be renamed
 ### перечень (кортеж ?) кодов параметров
+'''
 range_variables = [ "650", "534", "1651", "1682", 
             "2484", "2385", "3189", "2578", "2690", "2952", "2749", "2322",
             "2122", "2123", "2141", "2142", "1891", "1894", "3537", "3869",
@@ -62,6 +63,10 @@ range_astrings = [ "TMP",
             "PROTECTIVE_VALVE_SET_OPEN_CLOSE", "CONTROL_VALVE_SET_OPEN_CLOSE",
             "PROTECTIVE_VALVE_OPENED_CLOSED", "CONTROL_VALVE_OPENED_CLOSED", 
             "BATTERY_COND_TEST_VOLTAGE_RESULT" ]
+'''
+range_variables = [ "2122", "2141" ]
+range_astrings = [ "PD_PRESSURE" ]
+
 #range_variables = [ "650", "534", "1651", "1682", "2484", "2385", "3189", "2578", "2690", "2952", "2749", "2322", "2122", "2123", "2141", "2142", "1891", "1894", "3537", "3869", "2157", "2162", "2120", "2193", "2200", "2119", "2073", "2116", "2086", "1632", "1706", "2184", "1765", "3537", "2074" ]
 #range_astrings = [ "TMP", "UF_RATE", "UF_CHANNEL_1_FLOW", "UF_CHANNEL_2_FLOW", "UF_CHANNEL_1_FLOW_FILTERED", "UF_CHANNEL_2_FLOW_FILTERED", "UF_SUPERVISION_CHANNEL_1_FLOW", "UF_SUPERVISION_CHANNEL_2_FLOW", "UF_SUPERVISION_UF_RATE", "UFS_UFRATE_MEASURED", "UFS_TAR_START", "UFS_BL_PUMP_ACTIVE", "UFS_FILTR_UFR", "UFS_CP_DIFF_UFR", "PD_PRESSURE", "VENOUS_PRESSURE", "VENOUS_PRESSURE_P", "ARTERIAL_PRESSURE", "DIALYSIS_FLUID_PATH_FLOW_STATUS", "FLOW_SWITCH", "BLOOD_LEAK_DETECTOR_BLU", "BUBBLE_TRAP_POSITION", "A_TEMPERATURE", "B_TEMPERATURE", "C_TEMPERATURE", "P_TEMPERATURE", "B_TEMPERATURE_COMP", "HEATER_OUTLET_TEMPERATURE", "UI_IO_P_TEMPERATURE", "POWER_IO_P_TEMPERATURE", "A_CONDUCTIVITY", "B_CONDUCTIVITY", "P_CONDUCTIVITY", "A_CONCENTRATE_PUMP_SPEED_DEVIATION", "B_CONCENTRATE_PUMP_SPEED_DEVIATION", "SAFETY_GUARD_PRESSURE_SWITCH", "PROTECTIVE_VALVE_SET_OPEN_CLOSE", "CONTROL_VALVE_SET_OPEN_CLOSE", "PROTECTIVE_VALVE_OPENED_CLOSED", "CONTROL_VALVE_OPENED_CLOSED", "BATTERY_COND_TEST_VOLTAGE_RESULT" ]
 
@@ -106,6 +111,7 @@ class LogAnalizer:
             cursorObj.execute( "drop table if exists 'ak98_events'" )
             
             query_create_table = "CREATE TABLE 'ak98_events' ('moment_specific' TEXT PRIMARY KEY, 'technical_error' TEXT, 'machine_mode' TEXT, 'attention_message' TEXT, "
+            query_create_table += "'time_since_start' TEXT, "
             for event_variable in range_variables:
                 query_create_table += "'c" + str(event_variable) + "' TEXT, "
             for event_astring in range_astrings:
@@ -120,17 +126,23 @@ class LogAnalizer:
 
 
     # insert new row
-    def fn_insert_new_row(self, con, datatime_mark, log_file_name):
+    def fn_insert_new_row(self, con, datetime_mark, moment_start, log_file_name, machine_mode_current):
         try:
             cursorObj = con.cursor()
             
-            query_insert_data = "INSERT INTO 'ak98_events' ('archive_name', 'moment_specific') VALUES (?, ?);"
-            cursorObj.execute(query_insert_data, [log_file_name, datatime_mark])
+            #print(datetime_mark, " -- ", moment_start)
+            d1 = datetime.strptime(datetime_mark, "%Y-%m-%d %H:%M:%S")
+            d2 = datetime.strptime(moment_start, "%Y-%m-%d %H:%M:%S")
+            #print(d1, " === ", d2)
+            diff = (d1 - d2).seconds
+            #print(diff)
+            query_insert_data = "INSERT INTO 'ak98_events' ('archive_name', 'moment_specific', 'machine_mode', 'time_since_start') VALUES (?, ?, ?, ?);"
+            cursorObj.execute(query_insert_data, [log_file_name, datetime_mark, machine_mode_current, diff])
 
             con.commit()
 
         except sqlite3.Error as error:
-            print(error, " >>> ", datatime_mark, " >>> INSERT")
+            print(error, " >>> ", datetime_mark, " >>> INSERT")
 
 
     # insert data
@@ -142,16 +154,16 @@ class LogAnalizer:
             query_insert_data += data[0]
             query_insert_data += "' = "
             query_insert_data += data[1]
-            query_insert_data += ", 'machine_mode' = "
+            query_insert_data += ", 'machine_mode' = '"
             query_insert_data += data[3]
-            query_insert_data += " WHERE moment_specific = '"
+            query_insert_data += "' WHERE moment_specific = '"
             query_insert_data += data[2] + "';"
             cursorObj.execute(query_insert_data)
 
             con.commit()
 
         except sqlite3.Error as error:
-            print(error, " >>> ", data[2], " >>> UPDATE")
+            print(error, " >>> ", data[2], " --- mach.mode = ", data[3], " >>> UPDATE")
 
 
     # --------------------------------------------------------------
@@ -256,6 +268,7 @@ class LogAnalizer:
                     # переменная времени ПРЕДЫДУЩЕГО события - для решения вставлять новую строку или обновить существующую
                     date_time_prior = ""
                     flag_record_events = False
+                    moment_start = "2000-01-01 00:00:00"
 
                     #
                     machine_mode = "-"
@@ -268,8 +281,17 @@ class LogAnalizer:
 
                         if ( len( element ) > 2 ):
 
+                            # determine current Machine Mode
+                            # or hardkor machine_mode = '2" below
+                            #if ( element[1] == 'UI_CANLOG' and element[4] == 'MACHINE_MODE' ):
+                            #    machine_mode = "" + element[5]
+
                             if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] == '2' ):
                                 flag_record_events = True
+                                machine_mode = '2'
+                                #-- то, что ниже -- оптимизировать!!!
+                                date_time = (element[0].split("-"))[0].split(".")[0]
+                                moment_start = date_time.split("_")[0][0:4] + "-" + date_time.split("_")[0][4:6] + "-" + date_time.split("_")[0][6:8] + " " + date_time.split("_")[1]
                             
                             if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] == '3' ):
                                 flag_record_events = False
@@ -284,23 +306,23 @@ class LogAnalizer:
                                                         для элемента [0]: преобразовать в дату и время, записать в БД
                                                         для элемента [1]: записать в БД
                                 """
+                                # ---- tolerance -- 05:51:15, file size smoller -- 18 MB, 10 min.
                                 date_time = (element[0].split("-"))[0].split(".")[0]
-                                #date_time = (element[0].split("-"))[0]
+                                # ---- tolerance -- 05:15:15.345, file size much bigger -- 200 MB, 2 hrs.
+                                #date_time = (element[0].split("-"))[0] 
+
                                 date_time_formatted = date_time.split("_")[0][0:4] + "-" + date_time.split("_")[0][4:6] + "-" + date_time.split("_")[0][6:8] + " " + date_time.split("_")[1]
                                 
                                 # если событие происходит в тот же момент, то нет нужды создавать новую строку в базе данных
                                 if ( date_time_prior != date_time ):
                                     date_time_prior = date_time
-                                    self.fn_insert_new_row(sql_connection, date_time_formatted, file.split('.')[0])
+                                    self.fn_insert_new_row(sql_connection, date_time_formatted, moment_start, file.split('.')[0], machine_mode)
                                     
                                 """
                                                 3.1.2. если элемент [1] равен строке "CONTROL_TRACO", записать в БД элемент [5] в соответствующий столбец, а элемент [7] - в столбец "VALUE"
                                                 3.1.3. если элемент [1] равен строке "UI_CANLOG" AND элемент [3] не равен "MACHINEMODE_UI" AND элемент [4] не равен "DIAGNOSTIC_RAISED", 
                                                     записать в БД элемент [4] в соответствующий столбец, а элемент [5] - в столбец "VALUE"
                                 """
-
-                                if ( element[1] == 'UI_CANLOG' and element[4] == 'MACHINE_MODE' ):
-                                    machine_mode = "" + element[5]
 
                                 if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
                                     self.fn_update_data(sql_connection, ["c"+element[5], element[7], date_time_formatted, machine_mode])
@@ -329,6 +351,11 @@ class LogAnalizer:
                                     alarm_p = "'" + element[5] + " :_P_: " + element[6].split("=")[1] + "'"
                                     self.fn_update_data(sql_connection, ['attention_message', alarm_p, date_time_formatted, machine_mode])
 
+                        else:
+                            # case: Machine_mode was not finished but the machine was shut down
+                            machine_mode = '-'
+                            flag_record_events = False
+                        
                         # END: if ( len( element ) > 2 )
 
                     # закрываем файл

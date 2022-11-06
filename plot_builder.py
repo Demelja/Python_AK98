@@ -14,9 +14,16 @@ from matplotlib.figure import Figure
 
 from numpy import random
 
+import sqlite3
+
+
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+
+
+## HARD CORE DATA
+file_database_name = 'AK98_log_pressure.db'
 
 
 class Ui_MainWindow(object):
@@ -181,6 +188,27 @@ class Ui_MainWindow(object):
         #draw and refresh the canvas
         self.canvas.draw()
 
+    # ----------------------------------------------------------------------------
+    # connect with DB
+    def fn_sql_connection(self):
+        try:
+            #print("Выполнено fn_sql_connection - перед")
+            #return sqlite3.connect('AK98_full_log.db') # con = sqlite3.connect(':memory:')
+            return sqlite3.connect(file_database_name) # con = sqlite3.connect(':memory:')
+        except sqlite3.Error as error:
+            print(error, " >>> CONNECTION")
+
+    # ----------------------------------------------------------------------------
+    #
+    def fn_count_records(self, con):
+        try:
+            cursorObj = con.cursor()
+            return cursorObj.execute( "select COUNT(*) from 'ak98_events'" ).fetchone()[0]
+
+        except sqlite3.Error as error:
+            print(error)
+
+
 
 if __name__ == "__main__":
 
@@ -188,5 +216,12 @@ if __name__ == "__main__":
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
     ui.setupUi(MainWindow)
+
+    # 1. create database file
+    #sql_conn = a.fn_sql_connection()
+    
+    # 2.
+    #a.fn_sql_table(sql_conn)
+
     MainWindow.show()
     sys.exit(app.exec_())
