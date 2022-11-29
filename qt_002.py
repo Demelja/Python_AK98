@@ -34,7 +34,7 @@ from datetime import datetime
 ## HARD CORE DATA
 ### 
 file_data_name = 'ak98.log.txt'
-file_database_name = 'AK98_log_pressures_and_valves_new_version.db'
+file_database_name = 'AK98_NEW_pressures_and_valves_shorttime.db'
 #file_database_name = 'AK98_log_pressure.db'
 log_archive_name = "Archive.zip" #zip-file should be renamed
 ### перечень (кортеж ?) кодов параметров
@@ -65,9 +65,18 @@ range_astrings = [ "TMP",
             "PROTECTIVE_VALVE_OPENED_CLOSED", "CONTROL_VALVE_OPENED_CLOSED", 
             "BATTERY_COND_TEST_VOLTAGE_RESULT" ]
 '''
-range_variables = [ "2122", "2141",
-                    "2321", "2748", "2617", "2779", "2951", "2516", "3096", "2550", "2483", "2385", "2689", "3188", "2577", "1650", "650", "534", "1681", "1751" ]
+#
+range_variables = [ "2122", "2141", "2121", "2140" ]
+#
 range_astrings = [ "PD_PRESSURE", "VENOUS_PRESSURE", "VENOUS_PRESSURE_P", "ARTERIAL_PRESSURE" ]
+#
+#range_valves = [ "2321", "2748", "2617", "2779", "2951", "2516", "3096", "2550", "2483", "2385", "2689", "3188", "2577", "1650", "650", "534", "1681", "1715" ]
+range_valves = [ "F_ByvaSts", "F_DivaSts", "F_AivaSts" , "F_RevaSts", "F_FlvaSts", "F_RivaSts", "F_ZevaSts",
+            "F_DrvaSts", "F_CbvaSts", "F_ChvaSts", "F_InvaSts", "F_HbvaSts", "F_FivaSts", 
+            "F_Inva_Override", 
+            "O_ByvaOpen", "O_DivaOpen", "P_EvvaOpen", "F_EvvaDisOpen", "P_TavaOpen", "F_TavaDisOpen", "P_ChavaOpen", "FF_InValve" ]
+
+
 
 data_variables_astrings = {}
 
@@ -87,6 +96,14 @@ data_variables_and_values['technical_error'] = ""
 data_variables_and_values['attention_message'] = ""
 
 #
+data_valves = {}
+
+for event_valve in range_valves:
+    #data_valves["c"+event_valve] = ""
+	data_valves[event_valve] = ""
+
+
+#
 flag_empty_row = True
 
 
@@ -95,7 +112,8 @@ flag_empty_row = True
 # F_**vaSts: AIVA-2321, REVA-2748, FLVA-2617, RIVA-2779, ZEVA-2951, DRVA-2516, CBVA-3096, (EVVA), DIVA-2483, BYVA-2384, (TAVA), CHVA-2385, INVA-2689, HBVA-3188, FIVA-2577
 # F_EvvaDisOpen-2550
 # FF_InValve-2085
-# P_EvvaOpen-1650, O_DivaOpen-650, O_ByvaOpen-534, P_TavaOpen-1681, P_ChvaOpen-1751
+# P_EvvaOpen-1650, O_DivaOpen-650, O_ByvaOpen-534, P_TavaOpen-1681, P_ChvaOpen-1715
+# FI_DegassPr ref 2121, FI_HPGPr ref 2140
 #range_astrings = [ "TMP", "UF_RATE", "UF_CHANNEL_1_FLOW", "UF_CHANNEL_2_FLOW", "UF_CHANNEL_1_FLOW_FILTERED", "UF_CHANNEL_2_FLOW_FILTERED", "UF_SUPERVISION_CHANNEL_1_FLOW", "UF_SUPERVISION_CHANNEL_2_FLOW", "UF_SUPERVISION_UF_RATE", "UFS_UFRATE_MEASURED", "UFS_TAR_START", "UFS_BL_PUMP_ACTIVE", "UFS_FILTR_UFR", "UFS_CP_DIFF_UFR", "PD_PRESSURE", "VENOUS_PRESSURE", "VENOUS_PRESSURE_P", "ARTERIAL_PRESSURE", "DIALYSIS_FLUID_PATH_FLOW_STATUS", "FLOW_SWITCH", "BLOOD_LEAK_DETECTOR_BLU", "BUBBLE_TRAP_POSITION", "A_TEMPERATURE", "B_TEMPERATURE", "C_TEMPERATURE", "P_TEMPERATURE", "B_TEMPERATURE_COMP", "HEATER_OUTLET_TEMPERATURE", "UI_IO_P_TEMPERATURE", "POWER_IO_P_TEMPERATURE", "A_CONDUCTIVITY", "B_CONDUCTIVITY", "P_CONDUCTIVITY", "A_CONCENTRATE_PUMP_SPEED_DEVIATION", "B_CONCENTRATE_PUMP_SPEED_DEVIATION", "SAFETY_GUARD_PRESSURE_SWITCH", "PROTECTIVE_VALVE_SET_OPEN_CLOSE", "CONTROL_VALVE_SET_OPEN_CLOSE", "PROTECTIVE_VALVE_OPENED_CLOSED", "CONTROL_VALVE_OPENED_CLOSED", "BATTERY_COND_TEST_VOLTAGE_RESULT" ]
 
 
@@ -122,7 +140,7 @@ class LogAnalizer:
         except sqlite3.Error as error:
             print(error)
 
-    #
+    # calculate record
     def fn_count_records(self, con):
         try:
             cursorObj = con.cursor()
@@ -138,13 +156,17 @@ class LogAnalizer:
             cursorObj = con.cursor()
             cursorObj.execute( "drop table if exists 'ak98_events'" )
             
-            query_create_table = "CREATE TABLE 'ak98_events' ('moment_specific' TEXT PRIMARY KEY, 'technical_error' TEXT, 'machine_mode' TEXT, 'attention_message' TEXT, "
+            query_create_table = "CREATE TABLE 'ak98_events' ('moment_specific' TEXT PRIMARY KEY, 'machine_mode' TEXT, "
             query_create_table += "'time_since_start' TEXT, "
             for event_variable in range_variables:
                 query_create_table += "'c" + str(event_variable) + "' TEXT, "
             for event_astring in range_astrings:
                 query_create_table += "'" + str(event_astring) + "' TEXT, "
-            query_create_table += "'archive_name' TEXT);"
+            for event_valve in range_valves:
+                #query_create_table += "'c" + str(event_valve) + "' TEXT, "
+                query_create_table += "'" + str(event_valve) + "' TEXT, "
+            query_create_table += "'technical_error' TEXT, 'attention_message' TEXT);"
+            
             cursorObj.execute(query_create_table)
             
             con.commit()
@@ -154,7 +176,7 @@ class LogAnalizer:
 
 
     # insert new row and data
-    def fn_insert_new_row_and_data(self, con, datetime_mark, moment_start, log_file_name, machine_mode_current, data_variables_and_values, string_of_log):
+    def fn_insert_new_row_and_data(self, con, datetime_mark, moment_start, machine_mode_current, data_variables_and_values, data_valves):
 
         cursorObj = con.cursor()
 
@@ -162,18 +184,22 @@ class LogAnalizer:
 
             #print(datetime_mark, " -- ", moment_start)
             d1 = datetime.strptime(datetime_mark, "%Y-%m-%d %H:%M:%S")
+            # EXTENDED -- d1 = datetime.strptime(datetime_mark, "%Y-%m-%d %H:%M:%S.%f")
             d2 = datetime.strptime(moment_start, "%Y-%m-%d %H:%M:%S")
+            # EXTENDED -- d2 = datetime.strptime(moment_start, "%Y-%m-%d %H:%M:%S.%f")
             #print(d1, " === ", d2)
             diff = (d1 - d2).seconds
+            #diff = str((d1 - d2).seconds) + "." + str((d1 - d2).microseconds/1000)
+            # EXTENDED -- diff = str((d1 - d2).seconds) + "." + str((d1 - d2).microseconds)
             #diff = "-"
 
-            query_insert_data = "INSERT INTO 'ak98_events' ('archive_name', 'moment_specific', 'machine_mode', 'time_since_start') VALUES (?, ?, ?, ?);"
-            cursorObj.execute(query_insert_data, [log_file_name, datetime_mark, machine_mode_current, diff])
+            query_insert_data = "INSERT INTO 'ak98_events' ('moment_specific', 'machine_mode', 'time_since_start') VALUES (?, ?, ?);"
+            cursorObj.execute(query_insert_data, [datetime_mark, machine_mode_current, diff])
 
             con.commit()
 
         except sqlite3.Error as error:
-            print(error, " >>> ", datetime_mark, " >>> INSERT_Var_&_Data ", string_of_log)
+            print(error, " >>> ", datetime_mark, " >>> INSERT_Var_&_Data ")
         
         try:
 
@@ -182,45 +208,20 @@ class LogAnalizer:
                 query_update_data += "'" + str(event_variable_and_value) + "' = "
                 query_update_data += "'" + str(data_variables_and_values[event_variable_and_value]) + "'"
                 query_update_data += ", "
+            for event_valve in data_valves:
+                query_update_data += "'" + str(event_valve) + "' = "
+                query_update_data += "'" + str(data_valves[event_valve]) + "'"
+                query_update_data += ", "
             query_update_data += "'machine_mode' = '"
             query_update_data += "" + machine_mode_current + ""
             query_update_data += "' WHERE moment_specific = '"
             query_update_data += datetime_mark + "';"
-            #print("UPDATE: ", query_update_data)
             cursorObj.execute(query_update_data)
 
             con.commit()
 
         except sqlite3.Error as error:
-            print(error, " >>> ", datetime_mark, " >>> UPDATE_Var_&_Data ", string_of_log)
-
-
-    # insert data
-    def fn_update_data(self, con, data, data2):
-        try:
-            cursorObj = con.cursor()
-
-            query_update_data = "UPDATE ak98_events SET "
-            for event_variable in range_variables:
-                query_update_data += "'c" + str(event_variable) + "' = "
-                query_update_data += "'" + str(data2["c" + str(event_variable)]) + "'"
-                query_update_data += ", "
-            for event_astring in range_astrings:
-                query_update_data += "'" + str(event_astring) + "' = "
-                query_update_data += "'" + data2[event_astring] + "'"
-                query_update_data += ", "
-            query_update_data += "'machine_mode' = '"
-            query_update_data += data[3]
-            query_update_data += "' WHERE moment_specific = '"
-            query_update_data += data[2] + "';"
-
-            cursorObj.execute(query_update_data)
-
-            con.commit()
-
-        except sqlite3.Error as error:
-            #print(error, " >>> ", data[2], " --- mach.mode = ", data[3], " >>> UPDATE")
-            print(error, "UPDATE >>> ", 'query_update_data')
+            print(error, " >>> ", datetime_mark, " >>> UPDATE_Var_&_Data ")
 
 
     # --------------------------------------------------------------
@@ -304,8 +305,6 @@ class LogAnalizer:
         #
         flag_seance_start = False
         #
-        flag_record_events = False
-        #
         machine_mode = "-"
 
         # перебор всех файлов
@@ -347,15 +346,18 @@ class LogAnalizer:
                             if ( element[0] == 'Logging' and element[1] == 'started.' ):
                                 
                                 date_time_prior = "20000101_00:00:01"
+                                # EXTENDED -- date_time_prior = "20000101_00:00:01.000"
                                 for data_variable_and_value in data_variables_and_values:
                                     data_variables_and_values[data_variable_and_value] = ""
                                 machine_mode = "-"
-                                moment_start_formated = "2000-01-01 00:00:01"                       ############################################### не описано вычисление
+                                moment_start_formated = "2000-01-01 00:00:01"
+                                # EXTENDED -- moment_start_formated = "2000-01-01 00:00:01.000"
+                                flag_seance_start = False
 
                             else:
 
-                                # 
                                 date_time = (element[0].split("-"))[0].split(".")[0]
+                                # EXTENDED -- date_time = (element[0].split("-"))[0]
 
                                 # определяем момент старта сеанса
                                 if ( flag_seance_start == False and date_time.split("_")[0] != "20000101" ):
@@ -365,6 +367,8 @@ class LogAnalizer:
                                 # если предыдущее время нулевое, то присвоить предыдущему текущее
                                 if ( date_time_prior == "20000101_00:00:01" ):
                                     date_time_prior = (element[0].split("-"))[0].split(".")[0]
+                                # EXTENDED -- if ( date_time_prior == "20000101_00:00:01.000" ):
+                                # EXTENDED --     date_time_prior = (element[0].split("-"))[0]
                                 
                                 # если текущее == предыдущему: прочитать данные и записать в словарь
                                 if ( date_time_prior == date_time ):
@@ -372,7 +376,13 @@ class LogAnalizer:
                                     if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
                                         for event_variable in range_variables:
                                             if ( element[5] == event_variable ): data_variables_and_values["c"+element[5]] = element[7]
-
+                                    
+                                    #if ( element[1] == 'CONTROL_TRACO' and element[5] in range_valves ):
+                                    if ( element[1] == 'CONTROL_TRACO' and element[3] in range_valves ):
+                                        for event_valve in range_valves:
+                                            #if ( element[5] == event_valve ): data_valves["c"+element[5]] = element[7]
+                                            if ( element[3] == event_valve ): data_valves[element[3]] = element[7]
+                                    
                                     if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
                                         for event_astring in range_astrings:
                                             if ( element[4] == event_astring ): data_variables_and_values[str(element[4])] = element[5]
@@ -404,11 +414,19 @@ class LogAnalizer:
                                 elif ( date_time.split("_")[0] != "20000101" ):
 
                                     moment_start_formated = date_time_start.split("_")[0][0:4] + "-" + date_time_start.split("_")[0][4:6] + "-" + date_time_start.split("_")[0][6:8] + " " + date_time_start.split("_")[1]
+                                    # EXTENDED -- moment_start_formated = date_time_start.split("_")[0][0:4] + "-" + date_time_start.split("_")[0][4:6] + "-" + date_time_start.split("_")[0][6:8] + " " + date_time_start.split("_")[1]
                                     date_time_prior_formatted = date_time_prior.split("_")[0][0:4] + "-" + date_time_prior.split("_")[0][4:6] + "-" + date_time_prior.split("_")[0][6:8] + " " + date_time_prior.split("_")[1]
-                                    if ( machine_mode == "2" ):
-                                        self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formated, file.split('.')[0], machine_mode, data_variables_and_values, line)
+                                    # EXTENDED -- date_time_prior_formatted = date_time_prior.split("_")[0][0:4] + "-" + date_time_prior.split("_")[0][4:6] + "-" + date_time_prior.split("_")[0][6:8] + " " + date_time_prior.split("_")[1]
+                                    if ( date_time_prior.split("_")[0] != "20000101" ):
+                                        # размер файла MACHINE_MODE="2" -- 11.3 MB -- 3-4 минуты формирования
+                                        if ( machine_mode == "2" or machine_mode == "1" or machine_mode == "0" or machine_mode == "-" ): self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formated, machine_mode, data_variables_and_values, data_valves)
+                                        # размер для 2-1-0 -- 74 MB
+                                        # размер для всех MACHINE_MODE -- 236 MB -- ПЯТЬ (!) часов переписывания
+                                        #self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formated, file.split('.')[0], machine_mode, data_variables_and_values, line)
                                     data_variables_and_values['technical_error'] = ""
                                     data_variables_and_values['attention_message'] = ""
+                                    for event_valve in range_valves:
+                                        data_valves[event_valve] = ""
                                     date_time_prior = date_time
 
                                 # END IF+ELIF: date_time_prior == date_time
@@ -416,145 +434,6 @@ class LogAnalizer:
                             # END IF+ELSE: element[0] == 'Logging' and element[1] == 'started'
 
                         # END IF: len( element ) > 1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                        '''
-                        if ( len( element ) > 2 ):
-
-                            # флаг начала сеанса после слов <Logging started>
-                            flag_seance_start = True
-
-                            # determine current Machine Mode
-                            # or hardkor machine_mode = '2" below
-                            #if ( element[1] == 'UI_CANLOG' and element[4] == 'MACHINE_MODE' ):
-                            #    machine_mode = "" + element[5]
-
-                            if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] == '2' and flag_record_events == False ):
-                                flag_record_events = True
-                                machine_mode = '2'
-                                #-- то, что ниже -- оптимизировать!!!
-                                date_time = (element[0].split("-"))[0].split(".")[0]
-                                moment_start_formatted = date_time.split("_")[0][0:4] + "-" + date_time.split("_")[0][4:6] + "-" + date_time.split("_")[0][6:8] + " " + date_time.split("_")[1]
-                            if ( element[1] == 'UI_CANLOG' and element[2] == 'BLACKBOX' and element[3] == 'MACHINEMODE_UI' and element[5] != '2' ):
-                                flag_record_events = False
-                            
-                            if ( flag_record_events ):
-
-                                # ---- tolerance -- 05:51:15, file size smoller -- 18 MB, 10 min.
-                                date_time = (element[0].split("-"))[0].split(".")[0]
-                                # ---- tolerance -- 05:15:15.345, file size much bigger -- 200 MB, 2 hrs.
-                                #date_time = (element[0].split("-"))[0] 
-
-                                #date_time_formatted = date_time.split("_")[0][0:4] + "-" + date_time.split("_")[0][4:6] + "-" + date_time.split("_")[0][6:8] + " " + date_time.split("_")[1]
-
-                                ' ' '
-                                Рассмотрим варианты:
-                                1. date_time_prior < date_time -- создать новую запись в БД и 
-                                                                  выгрузить в нее содержание словаря date_variables_and_values, 
-                                                                  очистить значение переменных ошибок и предупреждений,
-                                                                  присвоить date_time_prior = date_time
-                                2. date_time_prior = date_time -- занести в словарь значения контролируемых переметров
-                                3. date_time_prior > date_time and date_time == "20000101" -- очистить значение переменных ошибок и предупреждений и 
-                                                                                              присвоить date_time_prior = date_time
-                                ' ' '
-
-                                # если событие происходит в НОВыЙ момент, то создать строку ПРЕДЫДУЩЕГО момента времени и выгрузить данные
-                                if ( date_time_prior != date_time ):
-
-                                    #print("2 ... ", line)
-                                    date_time_prior_formatted = date_time_prior.split("_")[0][0:4] + "-" + date_time_prior.split("_")[0][4:6] + "-" + date_time_prior.split("_")[0][6:8] + " " + date_time_prior.split("_")[1]
-                                    self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formatted, file.split('.')[0], machine_mode, data_variables_and_values)
-                                    # очистить значение переменных ошибок и предупреждений
-                                    data_variables_and_values['technical_error'] = ""
-                                    data_variables_and_values['attention_message'] = ""
-                                    date_time_prior = date_time
-
-                                elif ( date_time_prior == date_time ):
-                                    
-                                    if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
-                                        for event_variable in range_variables:
-                                            if ( element[5] == event_variable ):
-                                                data_variables_and_values["c"+element[5]] = element[7]
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
-                                        for event_astring in range_astrings:
-                                            if ( element[4] == event_astring ):
-                                                data_variables_and_values[str(element[4])] = element[5]
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
-                                        tech_error_number = self.fn_tech_error_number_decode(line)
-                                        data_variables_and_values['technical_error'] = tech_error_number
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
-                                        attention = element[5] + " :: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = attention
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
-                                        attention_p = element[5] + " :_P_: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = attention_p
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
-                                        alarm = element[5] + " :: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = alarm
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
-                                        alarm_p = element[5] + " :_P_: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = alarm_p
-
-                                elif ( ( date_time_prior != date_time ) and date_time.split("_")[0] == "20000101"):
-                                    
-                                    data_variables_and_values['technical_error'] = ""
-                                    data_variables_and_values['attention_message'] = ""
-                                    date_time_prior = date_time
-
-                                # END: if ( date_time_prior != date_time ):
-
-                        elif ( flag_seance_start ):
-                            flag_seance_start = False
-                            #print("flag_seance => False")
-                            #self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start, file.split('.')[0], machine_mode, data_variables_and_values)
-
-                        else:
-                            # в этой строку мешьше двух элементов и сеанс уже закончился
-                            # case: Machine_mode was not finished but the machine was shut down
-                            machine_mode = '-'
-                            flag_record_events = False
-
-                        # END: if ( len( element ) > 2 )
-                        '''
 
                     # закрываем файл
                     log_file.close
