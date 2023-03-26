@@ -103,11 +103,6 @@ for event_valve in range_valves:
 	data_valves[event_valve] = ""
 
 
-#
-flag_empty_row = True
-
-#
-sql_conn = None
 
 
 
@@ -134,6 +129,7 @@ class LogAnalizer:
     def __init__(self, parent=None):
         self.log_archive_name = ""
 
+
     # create DB in memory and retun a connection to the one
     def fn_sql_connection_in_memory(self):
         try:
@@ -141,24 +137,24 @@ class LogAnalizer:
         except sqlite3.Error as error:
             print(error)
 
+
     # create file DB on disk and backup DB from memory
-    def fn_backup_db_from_memory(self, con, file_database_name):
+    def fn_backup_db_from_memory(self, con_memory, file_database_name):
         try:
-            file_db = sqlite3.connect(file_database_name)
-            backup = con.backup(file_db)
+            con_file = sqlite3.connect(file_database_name)
+            backup = con_memory.backup(con_file)
             #backup.step(-1)
-            # close all connections
-            file_db.close()
-            con.close()
+            con_file.close()
+            #print(file_database_name, " ----- ", con_memory)
         except sqlite3.Error as error:
-            print(error)
+            print("BACKUP ----- ", error)
+
 
     # calculate record
     def fn_count_records(self, con):
         try:
             cursorObj = con.cursor()
             return cursorObj.execute( "select COUNT(*) from 'ak98_events'" ).fetchone()[0]
-
         except sqlite3.Error as error:
             print(error)
 
@@ -176,7 +172,6 @@ class LogAnalizer:
             for event_astring in range_astrings:
                 query_create_table += "'" + str(event_astring) + "' TEXT, "
             for event_valve in range_valves:
-                #query_create_table += "'c" + str(event_valve) + "' TEXT, "
                 query_create_table += "'" + str(event_valve) + "' TEXT, "
             query_create_table += "'technical_error' TEXT, 'attention_message' TEXT);"
             
@@ -188,13 +183,23 @@ class LogAnalizer:
             print(error)
 
 
+    # erase data
+    def fn_erase_data_from_memory(self, con):
+        try:
+            cursorObj = con.cursor()
+            cursorObj.execute( "DELETE FROM 'ak98_events'" )
+            con.commit()
+        except sqlite3.Error as error:
+            print("TABLE ak98_events ERASE -- ", error)
+    
+    
     # insert new row and data
     def fn_insert_new_row_and_data(self, con, datetime_mark, moment_start, machine_mode_current, data_variables_and_values, data_valves):
-
+        
         cursorObj = con.cursor()
 
         try:
-
+            
             # SHORTTIME - d1 = datetime.strptime(datetime_mark, "%Y-%m-%d %H:%M:%S")
             d1 = datetime.strptime(datetime_mark, "%Y-%m-%d %H:%M:%S.%f")
             # SHORTTIME - d2 = datetime.strptime(moment_start, "%Y-%m-%d %H:%M:%S")
@@ -233,6 +238,7 @@ class LogAnalizer:
         except sqlite3.Error as error:
             print(error, " >>> ", datetime_mark, " >>> UPDATE_Var_&_Data ")
 
+
     # --------------------------------------------------------------
     def fn_tech_error_number_decode(self, current_line_of_log):
         """"""
@@ -251,7 +257,7 @@ class LogAnalizer:
         if ( len( part_of_line[8].split("=")[1] ) == 1 ):
             sub_cat_num = "00" + part_of_line[8].split("=")[1]
         else:
-            if ( len( part_of_line[7].split("=")[1] ) == 2 ):
+            if ( len( part_of_line[8].split("=")[1] ) == 2 ):
                 sub_cat_num = "0" + part_of_line[8].split("=")[1]
             else:
                 sub_cat_num = part_of_line[8].split("=")[1]
@@ -273,6 +279,49 @@ class LogAnalizer:
                 cat_num = part_of_line[10].split("=")[1]
         
         tech_error_number = sub_node_num + "" + node_num + " " + sub_cat_num + " " + err_num + " " + cat_num + " :: " + part_of_line[6].split("=")[1]
+        
+        return tech_error_number
+
+
+    # --------------------------------------------------------------
+    def fn_tech_error_number_short_decode(self, current_line_of_log):
+        """
+                      DIAGNOSTIC_RAISED 5 (Node=NODE_CONTROL category=5 subCat=6 errInd=4 sizeExtra=0 extra= silent=0)
+        split(" ") :: 4                 5 6                  7          8        9        10          11     12
+        split("=") ::                     0     1            0        1 0      1 0      1 0         1 0      0
+        """
+        part_of_line = (current_line_of_log.strip()).split(" ")
+        
+        if ( len( part_of_line[5] ) == 1 ):
+            sub_node_num = "0" + part_of_line[5]
+        else:
+            sub_node_num = part_of_line[5]
+        
+        # category
+        if ( len( part_of_line[7].split("=")[1] ) == 1 ):
+            cat_num = "0" + part_of_line[7].split("=")[1]
+        else:
+            cat_num = part_of_line[7].split("=")[1]
+        
+        # subCategory
+        if ( len( part_of_line[8].split("=")[1] ) == 1 ):
+            sub_cat_num = "00" + part_of_line[8].split("=")[1]
+        else:
+            if ( len( part_of_line[8].split("=")[1] ) == 2 ):
+                sub_cat_num = "0" + part_of_line[8].split("=")[1]
+            else:
+                sub_cat_num = part_of_line[8].split("=")[1]
+        
+        # errIndex
+        if ( len( part_of_line[9].split("=")[1] ) == 1 ):
+            err_num = "00" + part_of_line[9].split("=")[1]
+        else:
+            if ( len( part_of_line[9].split("=")[1] ) == 2 ):
+                err_num = "0" + part_of_line[9].split("=")[1]
+            else:
+                err_num = part_of_line[9].split("=")[1]
+        
+        tech_error_number = "(" + sub_node_num + "" + cat_num + "" + sub_cat_num + "" + err_num + ")"
         
         return tech_error_number
 
@@ -306,13 +355,10 @@ class LogAnalizer:
     def fn_read_log_txt_to_sql(self, tmp_dir_archive):
 
         # переменная времени ПРЕДЫДУЩЕГО события - для решения вставлять новую строку или обновить существующую
-        date_time_prior = "20000101_00:00:01.001"
-        date_time_prior_formatted = "2000-01-01 00:00:01.001"
+        moment_prior = ""
+        moment_prior_formatted = ""
         #
-        date_time_start = "20000101_00:00:01"
-        moment_start_formated = "2000-01-01 00:00:01.001"
-        #
-        flag_seance_start = False
+        moment_start = "20000101_00:00:01.001"
         #
         machine_mode = "-"
         #
@@ -320,12 +366,15 @@ class LogAnalizer:
         dbname_serial_number = "!no_number!"
         dbname_errorcode = ""
         dbname_machinemode = "-"
-        dbname_starttime = ""
 
         moment = ""
         moment_prior = ""
-        flag_seance = False
+
         sqlconn_memory = self.fn_sql_connection_in_memory()
+        self.fn_sql_table(sqlconn_memory)
+
+        # маркер наличия интересующих нас данных в анализируемой строке
+        data_no_empty = False
 
         # перебор всех файлов
         for subdir, dirs, files in os.walk(tmp_dir_archive):
@@ -363,223 +412,110 @@ class LogAnalizer:
                         # разбить строку на элементы по пробелу
                         element = (line.strip()).split(" ")
 
-                        if ( len(element) > 2 ):
-                            
-                            moment = element[0].split("-")[0]
+                        if ( len(element) > 1 ):
 
-                            if ( flag_seance == True ):
+                            if ( element[0] == 'Logging' and element[1] == 'started.' ):
 
-                                if ( moment == moment_prior ):
+                                #if ( len(data_variables_and_values['technical_error']) > 1 ):
+                                #    for err in data_variables_and_values['technical_error']:
+                                #        dbname_errorcode = dbname_errorcode + "_" + err
+                                        
+                                database_name = dbname_serial_number + dbname_errorcode + "_" + dbname_machinemode + "_" + moment_start + ".db"
+                                        
+                                self.fn_backup_db_from_memory(sqlconn_memory, database_name)
 
-                                    if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
-                                        for event_variable in range_variables:
-                                            if ( element[5] == event_variable ): data_variables_and_values["c"+element[5]] = element[7]
-                                    
-                                    if ( element[1] == 'CONTROL_TRACO' and element[3] in range_valves ):
-                                        for event_valve in range_valves:
-                                            if ( element[3] == event_valve ): data_valves[element[3]] = element[7]
-                                    
-                                    if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
-                                        for event_astring in range_astrings:
-                                            if ( element[4] == event_astring ): data_variables_and_values[str(element[4])] = element[5]
+                                dbname_errorcode = ""
+                                dbname_machinemode = "-"
+                                moment_start = "20000101_00:00:01.001"
+                                # в этом месте нужно очистить БД в памяти
+                                self.fn_erase_data_from_memory(sqlconn_memory)
 
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
-                                        tech_error_number = self.fn_tech_error_number_decode(line)
-                                        dbname_errorcode = dbname_errorcode + "" + tech_error_number
-                                        data_variables_and_values['technical_error'] = tech_error_number
+                            else:
 
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
-                                        attention = element[5] + " :: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = attention
+                                moment = element[0].split("-")[0]
 
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
-                                        attention_p = element[5] + " :_P_: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = attention_p
+                                if ( ( moment != moment_prior ) and ( moment_prior != "" ) and ( data_no_empty != False ) ):
 
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
-                                        alarm = element[5] + " :: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = alarm
+                                    moment_start_formatted = moment_start.split("_")[0][0:4] + "-" + moment_start.split("_")[0][4:6] + "-" + moment_start.split("_")[0][6:8] + " " + moment_start.split("_")[1]
+                                    moment_prior_formatted = moment_prior.split("_")[0][0:4] + "-" + moment_prior.split("_")[0][4:6] + "-" + moment_prior.split("_")[0][6:8] + " " + moment_prior.split("_")[1]
 
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
-                                        alarm_p = element[5] + " :_P_: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = alarm_p
+                                    if ( moment_prior.split("_")[0] != "20000101" ):
+                                        self.fn_insert_new_row_and_data(sqlconn_memory, moment_prior_formatted, moment_start_formatted, machine_mode, data_variables_and_values, data_valves)
 
-                                    if ( element[1] == 'UI_CANLOG' and element[3] == 'MACHINEMODE_UI' ):
-                                        dbname_machinemode = "" + dbname_machinemode + element[5]
-
-                                else: # -> if ( moment == moment_prior ):
-
-                                    # SHORTTIME - moment_start_formated = date_time_start.split("_")[0][0:4] + "-" + date_time_start.split("_")[0][4:6] + "-" + date_time_start.split("_")[0][6:8] + " " + date_time_start.split("_")[1]
-                                    moment_start_formatted = date_time_start.split("_")[0][0:4] + "-" + date_time_start.split("_")[0][4:6] + "-" + date_time_start.split("_")[0][6:8] + " " + date_time_start.split("_")[1]
-                                    # SHORTTIME - date_time_prior_formatted = date_time_prior.split("_")[0][0:4] + "-" + date_time_prior.split("_")[0][4:6] + "-" + date_time_prior.split("_")[0][6:8] + " " + date_time_prior.split("_")[1]
-                                    date_time_prior_formatted = date_time_prior.split("_")[0][0:4] + "-" + date_time_prior.split("_")[0][4:6] + "-" + date_time_prior.split("_")[0][6:8] + " " + date_time_prior.split("_")[1]
-                                    if ( date_time_prior.split("_")[0] != "20000101" ):
-                                        # размер файла MACHINE_MODE="2" -- 11.3 MB -- 3-4 минуты формирования
-                                        #if ( machine_mode == "2" or machine_mode == "1" or machine_mode == "0" or machine_mode == "-" ): self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formated, machine_mode, data_variables_and_values, data_valves)
-                                        # размер для 2-1-0 -- 74 MB
-                                        # размер для всех MACHINE_MODE -- 236 MB -- ПЯТЬ (!) часов переписывания
-                                        #self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formated, file.split('.')[0], machine_mode, data_variables_and_values, line)
-                                        #print("+")
-                                        self.fn_insert_new_row_and_data(sqlconn_memory, date_time_prior_formatted, moment_start_formatted, machine_mode, data_variables_and_values, data_valves)
                                     #data_variables_and_values['technical_error'] = ""
+
                                     data_variables_and_values['attention_message'] = ""
+
                                     for event_valve in range_valves:
                                         data_valves[event_valve] = ""
+
+                                    data_no_empty = False
+
+                                #end if ( ( moment != moment_prior ) and ( moment_prior != "" ) )
+
+                                # ----------------- analize begin
+                                
+                                if ( ( moment_start == "20000101_00:00:01.001" ) and ( moment.split("_")[0] != '20000101' ) ): moment_start = moment
+
+                                if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
+                                    data_no_empty = True
+                                    for event_variable in range_variables:
+                                        if ( element[5] == event_variable ): data_variables_and_values["c"+element[5]] = element[7]
                                     
-                                    if ( moment.split("_")[0] == "20000101" and moment_prior.split("_")[0] != "20000101"):
-                                        
-                                        if ( len(data_variables_and_values['technical_error']) > 0 ):
-                                            for err in data_variables_and_values['technical_error']:
-                                                dbname_errorcode = dbname_errorcode + "_" + err
-                                        
-                                        database_name = dbname_serial_number + dbname_errorcode + "_" + dbname_errorcode + "_" + dbname_starttime
-                                        
-                                        self.fn_backup_db_from_memory(sqlconn_memory, database_name)
+                                if ( element[1] == 'CONTROL_TRACO' and element[3] in range_valves ):
+                                    data_no_empty = True
+                                    for event_valve in range_valves:
+                                        if ( element[3] == event_valve ): data_valves[element[3]] = element[7]
+                                    
+                                if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
+                                    data_no_empty = True
+                                    for event_astring in range_astrings:
+                                        if ( element[4] == event_astring ): data_variables_and_values[str(element[4])] = element[5]
 
-                                        sqlconn_memory.close()
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
+                                    data_no_empty = True
+                                    #tech_error_number = self.fn_tech_error_number_decode(line)
+                                    tech_error_number = self.fn_tech_error_number_short_decode(line)
+                                    data_variables_and_values['technical_error'] = tech_error_number
+                                    dbname_errorcode = dbname_errorcode + "_" + tech_error_number
 
-                                    else: # -> if ( moment.split("_")[0] == "20000101" and moment_prior.split("_")[0] != "20000101"):
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
+                                    data_no_empty = True
+                                    attention = element[5] + " :: " + element[6].split("=")[1]
+                                    data_variables_and_values['attention_message'] = attention
 
-                                        moment_prior = moment
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
+                                    data_no_empty = True
+                                    attention_p = element[5] + " :_P_: " + element[6].split("=")[1]
+                                    data_variables_and_values['attention_message'] = attention_p
 
-                                    # end -> if ( moment.split("_")[0] == "20000101" and moment_prior.split("_")[0] != "20000101"):
-                                # end -> if ( moment == moment_prior ):
-                            # end -> if ( flag_seance = True ):
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
+                                    data_no_empty = True
+                                    alarm = element[5] + " :: " + element[6].split("=")[1]
+                                    data_variables_and_values['attention_message'] = alarm
 
-                            if ( moment_prior == "" and moment.split("_")[0] ):
+                                if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
+                                    data_no_empty = True
+                                    alarm_p = element[5] + " :_P_: " + element[6].split("=")[1]
+                                    data_variables_and_values['attention_message'] = alarm_p
 
-                                flag_seance = True
+                                if ( element[1] == 'UI_CANLOG' and element[3] == 'MACHINEMODE_UI' ):
+                                    data_no_empty = True
+                                    machine_mode = "" + element[5]
+                                    dbname_machinemode = "" + dbname_machinemode + element[5]
+
+                                if ( element[1] == 'UI_GUI' and element[5] == 'serial' ):
+                                    data_no_empty = True
+                                    dbname_serial_number = "" + element[7]
+
                                 moment_prior = moment
 
-                                sqlconn_memory = self.fn_sql_connection_in_memory()
+                                # ----------------- analize end
 
-                            # end -> if ( moment_prior == "" and moment.split("_")[0] ):
-
-
+                            #end if
 
 
 
-
-
-
-
-
-
-
-
-                            """
-                            # начало сеанса если первая строка в файле
-                            if ( not flag_seance_start and ( element[1] == 'UI_GUI' and element[4] == 'Machine' ) ):
-                                print(element[7], " ", flag_seance_start)
-                                dbname_serial_number = element[7]
-                                flag_seance_start = True
-                                # 1. create database file
-                                sql_conn = self.fn_sql_connection_in_memory()
-                                # 2.
-                                self.fn_sql_table(sql_conn)
-                            
-                            # выгрузить информацию в файл базы данных
-                            #if ( flag_seance_start and ( element[0] == 'Logging' and element[1] == 'started.' ) ):
-                            if ( flag_seance_start and element[0].split("_")[0] == '20000101' ):
-                                dbname_starttime = date_time_start.split("_")[0]
-                                file_database_name = dbname_serial_number + "_" + dbname_errorcode + "_" + dbname_machinemode + "_" + dbname_starttime + ".db"
-                                # 3.
-                                self.fn_backup_db_from_memory(sql_conn, file_database_name)
-                                #
-                                flag_seance_start = False
-                                sql_conn.close()
-                                #
-                                print("--", file_database_name)
-                                file_database_name = ""
-                                dbname_machinemode = ""
-                                dbname_errorcode = ""
-                                dbname_serial_number = "!no_number!"
-                                dbname_starttime = ""
-                            
-                            # начало сеанса после слов <Logging started>
-                            #if ( not flag_seance_start and ( element[0] == 'Logging' and element[1] == 'started.' ) ):
-                            if ( not flag_seance_start and element[0].split("_")[0] == '20000101' ):
-                                flag_seance_start = True
-                                #if ( not sql_conn ):
-                                # 1. create database file
-                                sql_conn = self.fn_sql_connection_in_memory()
-                                # 2.
-                                self.fn_sql_table(sql_conn)
-                            
-                            #
-                            if ( flag_seance_start and len(element) > 2 ):
-
-                                # прочитать текущее время записи события    
-                                # SHORTTIME - date_time = (element[0].split("-"))[0].split(".")[0]
-                                date_time = (element[0].split("-"))[0]
-                                if ( date_time_prior.split("_")[0] == '20000101' ): date_time_start = date_time
-                                    
-                                # если текущее == предыдущему: прочитать данные и записать в словарь
-                                if ( date_time_prior == date_time ):
-
-                                    if ( element[1] == 'CONTROL_TRACO' and element[5] in range_variables ):
-                                        for event_variable in range_variables:
-                                            if ( element[5] == event_variable ): data_variables_and_values["c"+element[5]] = element[7]
-                                    
-                                    if ( element[1] == 'CONTROL_TRACO' and element[3] in range_valves ):
-                                        for event_valve in range_valves:
-                                            if ( element[3] == event_valve ): data_valves[element[3]] = element[7]
-                                    
-                                    if ( element[1] == 'UI_CANLOG' and element[4] in range_astrings ):
-                                        for event_astring in range_astrings:
-                                            if ( element[4] == event_astring ): data_variables_and_values[str(element[4])] = element[5]
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'DIAGNOSTIC_RAISED' ):
-                                        tech_error_number = self.fn_tech_error_number_decode(line)
-                                        dbname_errorcode = dbname_errorcode + "" + tech_error_number
-                                        data_variables_and_values['technical_error'] = tech_error_number
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_RAISED' ):
-                                        attention = element[5] + " :: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = attention
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ATTENTION_P_RAISED' ):
-                                        attention_p = element[5] + " :_P_: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = attention_p
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_RAISED' ):
-                                        alarm = element[5] + " :: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = alarm
-
-                                    if ( element[1] == 'UI_CANLOG' and element[4] == 'ALARM_P_RAISED' ):
-                                        alarm_p = element[5] + " :_P_: " + element[6].split("=")[1]
-                                        data_variables_and_values['attention_message'] = alarm_p
-
-                                    if ( element[1] == 'UI_CANLOG' and element[3] == 'MACHINEMODE_UI' ):
-                                        dbname_machinemode = "" + dbname_machinemode + element[5]
-
-                                # иначе + если текущее время не нулевое
-                                #elif ( date_time.split("_")[0] != "20000101" ):
-                                else:
-
-                                    # SHORTTIME - moment_start_formated = date_time_start.split("_")[0][0:4] + "-" + date_time_start.split("_")[0][4:6] + "-" + date_time_start.split("_")[0][6:8] + " " + date_time_start.split("_")[1]
-                                    moment_start_formatted = date_time_start.split("_")[0][0:4] + "-" + date_time_start.split("_")[0][4:6] + "-" + date_time_start.split("_")[0][6:8] + " " + date_time_start.split("_")[1]
-                                    # SHORTTIME - date_time_prior_formatted = date_time_prior.split("_")[0][0:4] + "-" + date_time_prior.split("_")[0][4:6] + "-" + date_time_prior.split("_")[0][6:8] + " " + date_time_prior.split("_")[1]
-                                    date_time_prior_formatted = date_time_prior.split("_")[0][0:4] + "-" + date_time_prior.split("_")[0][4:6] + "-" + date_time_prior.split("_")[0][6:8] + " " + date_time_prior.split("_")[1]
-                                    if ( date_time_prior.split("_")[0] != "20000101" ):
-                                        # размер файла MACHINE_MODE="2" -- 11.3 MB -- 3-4 минуты формирования
-                                        #if ( machine_mode == "2" or machine_mode == "1" or machine_mode == "0" or machine_mode == "-" ): self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formated, machine_mode, data_variables_and_values, data_valves)
-                                        # размер для 2-1-0 -- 74 MB
-                                        # размер для всех MACHINE_MODE -- 236 MB -- ПЯТЬ (!) часов переписывания
-                                        #self.fn_insert_new_row_and_data(sql_connection, date_time_prior_formatted, moment_start_formated, file.split('.')[0], machine_mode, data_variables_and_values, line)
-                                        #print("+")
-                                        self.fn_insert_new_row_and_data(sql_conn, date_time_prior_formatted, moment_start_formatted, machine_mode, data_variables_and_values, data_valves)
-                                    #data_variables_and_values['technical_error'] = ""
-                                    data_variables_and_values['attention_message'] = ""
-                                    for event_valve in range_valves:
-                                        data_valves[event_valve] = ""
-                                    
-                                    date_time_prior = date_time
-                            
-                                # END IF+ELIF: date_time_prior == date_time
-
-                            # END IF+ELSE: element[0] == 'Logging' and element[1] == 'started'
-                            """
 
 
 
@@ -588,19 +524,27 @@ class LogAnalizer:
                     # закрываем файл
                     log_file.close
 
+        sqlconn_memory.close()
 
 
+
+
+
+
+
+# ====================================================================
+# ====================================================================
 # ====================================================================
 # ====================================================================
 # for future: start from command line with parameters
-if len (sys.argv) > 1:
-    print ("Attached, {}!".format (sys.argv[1] ) )
-else:
-    print ("Nothing attached, execute file only")
-
-
-
-
+#if len (sys.argv) > 1:
+#    print ("Attached, {}!".format (sys.argv[1] ) )
+#else:
+#    print ("Nothing attached, execute file only")
+# ====================================================================
+# ====================================================================
+# ====================================================================
+# ====================================================================
 
 # create temporary directory -> analize -> remove temp.directory
 with tempfile.TemporaryDirectory() as directory:
